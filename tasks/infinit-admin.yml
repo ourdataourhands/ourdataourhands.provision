@@ -1,0 +1,37 @@
+# Infinit admin user
+- name: "Push infinit admin user to system"
+  become: false
+  template:
+    src: users/{{ provision_infinit_admin }}.user
+    dest: ~/{{ provision_infinit_admin }}.user
+
+- name: "Import infinit admin user"
+  ignore_errors: yes
+  become: false
+  command: "{{ provision_infinit_bin }} user import --input ~/{{ provision_infinit_admin }}.user"
+
+- name: "Remove infinit admin user"
+  become: false
+  file:
+    path: ~/{{ provision_infinit_admin }}.user
+    state: absent
+
+- name: "Fetch infinit volumes"
+  become: false
+  command: "{{ provision_infinit_bin }} volume fetch --as {{ provision_infinit_user }}"
+  register: volumes
+
+- name: "Create volume mount point"
+  become: true
+  file:
+    path: "{{ provision_volume_mount_point }}"
+    state: directory
+    mode: 0755
+    owner: pi
+    group: pi
+
+- name: "Setup infinit volume service in systemd"
+  become: true
+  template:
+    src: "templates/infinit-volume.service.j2"
+    dest: "/etc/systemd/system/infinit-volume.service"

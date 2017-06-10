@@ -1,0 +1,260 @@
+---
+- name: "Remove FSCKFIX=no from /lib/init/vars.sh"
+  become: true
+  lineinfile:
+    path: "/lib/init/vars.sh"
+    state: absent
+    line: "FSCKFIX=no"
+
+- name: "Set FSCKFIX=yes in /lib/init/vars.sh"
+  become: true
+  lineinfile:
+    path: "/lib/init/vars.sh"
+    state: present
+    line: "FSCKFIX=yes"
+
+- name: "Disable some services"
+  become: true
+  service:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  with_items:
+    - avahi-daemon
+    - bluetooth
+    - hciuart
+    - rpi-display-backlight
+
+- name: "Check if {{ provision_id_file }} exists"
+  become: false
+  stat:
+    path: "{{ provision_id_file }}"
+  register: stat_result
+
+- name: "Set provision_infinit_user"
+  set_fact:
+    provision_infinit_user: "{{ hostvars[inventory_hostname]['ansible_machine_id'] }}.odoh.io"
+  when:
+    - not provision_primary
+    - stat_result.stat.exists == false
+
+- name: "Add Our Data Our Hands ID"
+  become: false
+  lineinfile:
+    path: "{{ provision_id_file }}"
+    create: yes
+    state: present
+    line: "{{ provision_infinit_user }}"
+  when:
+    - not provision_primary
+    - stat_result.stat.exists == false
+
+- name: "Get file contents of {{ provision_id_file }}"
+  become: false
+  shell: cat {{ provision_id_file }}
+  register: provision_id_file_data
+  when:
+    - not provision_primary
+    - stat_result.stat.exists == true
+
+- name: "Set provision_infinit_user"
+  set_fact:
+    provision_infinit_user: "{{ provision_id_file_data.stdout }}"
+  when:
+    - not provision_primary
+    - stat_result.stat.exists == true
+
+- name: "Expand filesystem to the whole SD card"
+  become: true
+  command: /usr/bin/raspi-config --expand-rootfs
+  when: not provision_skip_reboot
+
+- name: "Reboot server to enable expanded filesystem"
+  become: true
+  shell: sleep 2 && /sbin/reboot
+  async: 1
+  poll: 0
+  when: not provision_skip_reboot
+
+- name: "Wait for the server to finish rebooting"
+  become: false
+  local_action: wait_for host={{ inventory_hostname }} port=22 state=started delay={{ provision_delay }} timeout={{ provision_timeout }}
+  when: not provision_skip_reboot
+
+- name: "Install infinit required packages"
+  become: true
+  apt:
+    name: "{{ item }}"
+  with_items:
+    - fuse
+    - software-properties-common
+    - apt-transport-https
+
+- name: "Update all packages to the latest version"
+  become: true
+  apt:
+    upgrade: dist
+
+# More https://github.com/RPi-Distro/repo/issues/28#issuecomment-216640318
+# @todo convert this to use lineinfile
+- name: "Remove the config at the end of /etc/rsyslog.conf because syslog spam"
+  become: true
+  command: sed -i '/# The named pipe \/dev\/xconsole/,$d' /etc/rsyslog.conf
+
+- name: "Reboot server after first updates"
+  become: true
+  shell: sleep 2 && /sbin/reboot
+  async: 1
+  poll: 0
+  when: not provision_skip_reboot
+
+- name: "Wait for the server to finish rebooting again"
+  become: false
+  local_action: wait_for host={{ inventory_hostname }} port=22 state=started delay={{ provision_delay }} timeout={{ provision_timeout }}
+  when: not provision_skip_reboot
+
+- name: "Mount external storage device"
+  become: true
+  mount:
+    path: "{{ provision_storage_mount }}"
+    src: /dev/sda1
+    fstype: ext4
+    state: mounted
+    passno: 2
+
+- name: "Apply appropriate permissions to external storage"
+  become: true
+  file:
+    path: "{{ provision_storage_mount }}"
+    owner: pi
+    group: pi
+    recurse: yes
+
+- name: "Create {{ provision_storage_mount }}/.local"
+  become: false
+  file:
+    path: "{{ provision_storage_mount }}/.local"
+    state: directory
+
+- name: "Make sure ~/.local does not exist"
+  become: true
+  file:
+    path: "/home/pi/.local"
+    state: absent
+
+- name: "Create symbolic link for ~/.local"
+  become: false
+  file:
+    src: "{{ provision_storage_mount }}/.local"
+    dest: "/home/pi/.local"
+    state: link    
+
+- name: "Generate SSH keys"
+  become: false
+  user:
+    name: pi
+    generate_ssh_key: yes
+
+- name: "Configure fuse to allow other users"
+  become: true
+  template:
+    src: "fuse.conf"
+    dest: "/etc/fuse.conf"
+
+- name: "Download and unarchive the infinit binary"
+  become: true
+  unarchive:
+    src: "https://storage.googleapis.com/sh_infinit_releases/raspberry/infinit-arm-0.7.3.tar.gz"
+    dest: "/opt/"
+    remote_src: true
+
+- name: "Create symbolic link for infinit"
+  become: true
+  file:
+    src: "/opt/infinit-arm-0.7.3"
+    dest: "/opt/infinit"
+    state: link
+
+- name: "infinit path set for user pi"
+  become: false
+  lineinfile:
+    path: ~/.profile
+    line: 'PATH="/opt/infinit/bin:$PATH"'
+
+- name: "Set default infinit user in .profile"
+  become: false
+  lineinfile:
+    path: ~/.profile
+    line: 'export INFINIT_USER={{ provision_infinit_user }}'
+
+- name: "Setup infinit networking in systemd"
+  become: true
+  template:
+    src: "templates/infinit-network.service.j2"
+    dest: "/etc/systemd/system/infinit-network.service"
+
+- name: "Setup primary infinit node admin user {{ provision_infinit_admin }}"
+  include: infinit-admin.yml
+  when: provision_primary
+
+- name: "Setup infinit node user"
+  include: infinit-node.yml
+  when: not provision_primary
+
+- name: "Get a list of infinit users"
+  become: false
+  command: "{{ provision_infinit_bin }} user list --as {{ provision_infinit_user }}"
+  register: list
+
+- name: "Fetch infinit networks"
+  become: false
+  command: "{{ provision_infinit_bin }} network fetch --as {{ provision_infinit_user }}"
+  register: network
+
+- name: "Fetch infinit passports"
+  become: false
+  command: "{{ provision_infinit_bin }} passport fetch --as {{ provision_infinit_user }}"
+  register: passports
+
+- name: "List local storage"
+  become: false
+  command: "{{ provision_infinit_bin }} silo list --as {{ provision_infinit_user }}"
+  register: storage
+
+- name: "Create local storage"
+  become: false
+  command: "{{ provision_infinit_bin }} silo create --filesystem --name {{ provision_infinit_storage }} --path {{ provision_storage_path }} --as {{ provision_infinit_user }}"
+  when: storage.stdout|length==0      
+
+- name: "Link the network"
+  ignore_errors: yes
+  become: false
+  command: "{{ provision_infinit_bin }} network link --name {{ provision_infinit_admin }}/{{ provision_infinit_network }} --storage {{ provision_infinit_storage }} --as {{ provision_infinit_user }}"
+
+- name: "Setup the infinit network service"
+  become: true
+  service:
+    name: infinit-network
+    enabled: yes
+    state: started
+
+- name: "Setup the infinit volume service"
+  become: true
+  service:
+    name: infinit-volume
+    enabled: no
+    state: stopped
+  when: provision_primary
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,15 @@
+[Unit]
+Description=infinit.sh volume
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+ExecStart={{ provision_infinit_bin }} volume mount --as {{ provision_infinit_admin }} --name {{ provision_infinit_volume }} --mountpoint {{ provision_volume_mount_point }} --allow-root-creation --cache --publish --async
+
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

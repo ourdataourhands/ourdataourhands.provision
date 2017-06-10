@@ -1,0 +1,14 @@
+[Unit]
+Description=infinit.sh network
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+ExecStart={{ provision_infinit_bin }} network run --as {{ provision_infinit_user }} --name {{ provision_infinit_admin }}/{{ provision_infinit_network }}  --allow-root-creation --cache --publish --async
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

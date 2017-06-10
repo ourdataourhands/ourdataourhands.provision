@@ -1,0 +1,37 @@
+# Infinit node user
+- name: "Create infinit user on node"
+  ignore_errors: yes
+  become: false
+  command: "{{ provision_infinit_bin }} user create --name {{ provision_infinit_user }} --key ~/.ssh/id_rsa"
+
+- name: "Push user to infinit"
+  ignore_errors: yes
+  become: false
+  command: "{{ provision_infinit_bin }} user push --name {{ provision_infinit_user }}"
+
+- pause:
+    seconds: 3
+    prompt: "Courtesy waiting period for beyond.infinit.sh ..."
+
+- name: "Fetch infinit user to Ansible host"
+  ignore_errors: yes
+  become: false
+  local_action: command infinit user fetch --as {{ provision_infinit_admin }} --name {{ provision_infinit_user }}
+
+- name: "Create passport for infinit user"
+  ignore_errors: yes
+  become: false
+  local_action: command infinit passport create --as {{ provision_infinit_admin }} --network {{ provision_infinit_network }} --user {{ provision_infinit_user }}
+
+- name: "Push passport to infinit"
+  ignore_errors: yes
+  become: false
+  local_action: command infinit passport push --as {{ provision_infinit_admin }} --network {{ provision_infinit_network }} --user {{ provision_infinit_user }}
+
+- pause:
+    seconds: 3
+    prompt: "Courtesy waiting period for beyond.infinit.sh ..."
+    
+- name: "Fetch passport for infinit user on node"
+  become: false
+  command: "{{ provision_infinit_bin }} passport fetch --as {{ provision_infinit_user }}"

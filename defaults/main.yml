@@ -1,0 +1,15 @@
+---
+# defaults
+provision_storage_mount: "/mnt/storage"
+provision_storage_path: "/mnt/storage/data"
+provision_volume_mount_point: "/mnt/datamount"
+provision_id_file: "/home/pi/.odoh_id"
+provision_infinit_network: "alexanderhamiltonnetwork"
+provision_infinit_volume: "resistancevolume"
+provision_infinit_admin: "herculesmulligan.odoh.io"
+provision_infinit_user: "herculesmulligan.odoh.io"
+provision_infinit_storage: "local"
+provision_primary: false
+provision_skip_reboot: true
+provision_delay: 120
+provision_timeout: 150
